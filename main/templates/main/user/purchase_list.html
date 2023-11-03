@@ -1,0 +1,44 @@
+{% extends "main/base.html" %}
+
+{% block title %}Purchase List{% endblock %}
+{% block content %}
+    <h1>Purchase List</h1>
+        {% if messages %}
+        <div class="alert alert-danger" role="alert">
+            {% for message in messages %}
+                {{ message }}
+            {% endfor %}
+       </div>
+        {% endif %}
+    <ul>
+        {% for purchase in purchases %}
+            <li>
+                {{ purchase.product.title }} - {{ purchase.product_quantity }}
+                <form method="post" action="{% url 'main:create_refund' purchase.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger">Вернуть товар</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <div class="pagination">
+        <span class="step-links">
+            {% if purchases.has_previous %}
+                <a href="?page=1">&laquo; first</a>
+                <a href="?page={{ purchases.previous_page_number }}">previous</a>
+            {% endif %}
+
+            <span class="current">
+                Page {{ purchases.number }} of {{ purchases.paginator.num_pages }}.
+            </span>
+
+            {% if purchases.has_next %}
+                <a href="?page={{ purchases.next_page_number }}">next</a>
+                <a href="?page={{ purchases.paginator.num_pages }}">last &raquo;</a>
+            {% endif %}
+        </span>
+    </div>
+
+{% endblock %}
+<!-- completed -->

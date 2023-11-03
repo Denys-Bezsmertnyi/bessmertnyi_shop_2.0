@@ -1,0 +1,14 @@
+{% extends "main/base.html" %}
+
+{% block title %} Login {% endblock %}
+
+{% block content %}
+<span>Already has account? <a href="{% url 'main:login' %}">Login</a></span>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form }}
+    <input type="submit" value="Register">
+</form>
+{% endblock %}
+<!-- completed -->
