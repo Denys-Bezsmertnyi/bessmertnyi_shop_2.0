@@ -1,16 +1,19 @@
-from django.contrib import messages
-from django.contrib.auth.forms import UserCreationForm
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
-from django.http import HttpResponseRedirect, HttpResponseForbidden
-from django.urls import reverse_lazy, reverse
+from django.db import transaction
+from django.urls import reverse
 from django.views.generic.edit import UpdateView, DeleteView, FormView
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect, get_object_or_404
 from django.views.generic import CreateView, ListView, DetailView
-from django.views.generic.base import TemplateView
+from .forms import CustomUserCreationForm, PurchaseForm, RefundForm
+from .models import Product, Refund, Purchase
+from django.contrib import messages
+from django.http import HttpResponseRedirect
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.utils.translation import gettext as _
 
-from main.forms import CustomUserCreationForm, PurchaseForm, RefundForm
-from main.models import Product, Refund, Purchase
+class IsAdminMixin(UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.is_superuser
 
 
 class Products(ListView):
@@ -19,7 +22,7 @@ class Products(ListView):
     template_name = 'main/index.html'
 
 
-class AdminProductList(ListView):
+class AdminProductList(IsAdminMixin, ListView):
     paginate_by = 8
     model = Product
     template_name = 'main/admin_panel/product_list.html'
@@ -45,30 +48,31 @@ class Logout(LoginRequiredMixin, LogoutView):
     login_url = 'login/'
 
 
-class ChangeProduct(UpdateView):
+class ChangeProduct(IsAdminMixin, UpdateView):
     model = Product
     fields = ['image', 'title', 'description', 'price', 'stock']
     template_name = 'main/admin_panel/change_product.html'
     success_url = '/product-list/'
 
 
-class AddProduct(CreateView):
+class AddProduct(IsAdminMixin, CreateView):
     template_name = 'main/admin_panel/add_product.html'
     model = Product
     fields = ['image', 'title', 'description', 'price', 'stock']
     success_url = '/product-list/'
 
 
-class Refunds(ListView):
+class Refunds(IsAdminMixin, ListView):
     model = Refund
     template_name = 'main/admin_panel/refunds.html'
     paginate_by = 8
 
 
-class RefundAgree(DeleteView):
+class RefundAgree(IsAdminMixin, DeleteView):
     model = Refund
     success_url = '/refunds/'
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         refund = self.get_object()
         purchase = refund.refund_purchase
@@ -86,7 +90,8 @@ class RefundAgree(DeleteView):
 
         return redirect(self.success_url)
 
-class RefundReject(DeleteView):
+
+class RefundReject(IsAdminMixin, DeleteView):
     model = Refund
     success_url = '/refunds/'
 
@@ -130,20 +135,14 @@ class ProductPurchase(DetailView, FormView):
 
         return super().form_valid(form)
 
-
-class PurchaseList(ListView):
+class PurchaseList(LoginRequiredMixin, ListView):
     model = Purchase
     template_name = 'main/user/purchase_list.html'
     context_object_name = 'purchases'
 
-
     def get_queryset(self):
         return Purchase.objects.filter(user=self.request.user)
 
-
-from django.contrib import messages
-from django.urls import reverse
-from django.http import HttpResponseRedirect
 
 class CreateRefund(CreateView):
     model = Refund
@@ -168,4 +167,4 @@ class CreateRefund(CreateView):
         return super().form_valid(form)
 
 
-#completed
+# completed
