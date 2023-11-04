@@ -51,9 +51,11 @@
           {% if request.user.is_authenticated %}
           <div class="card-footer p-4 pt-0 border-top-0 bg-transparent">
               <div class="text-center">
-                  <a href="{% url 'main:purchase_product' obj.pk %}" class="btn btn-outline-dark mt-auto" role="button">
-                      <span class="bi bi-cart4"></span> Buy
-                  </a>
+                  <form method="post" action="{% url 'main:purchase_product' obj.pk %}">
+                      {% csrf_token %}
+                      {{ purchase_form }}
+                      <button class="btn btn-outline-dark mt-auto">Buy</button>
+                  </form>
                  <div class="text-center">
                   <span class="price fw-bold ms-2">In stock: {{ obj.stock }}</span>
                 </div>

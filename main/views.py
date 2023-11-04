@@ -1,32 +1,36 @@
+from datetime import timedelta
+
+from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
-from django.http import HttpResponseRedirect, HttpResponseForbidden
-from django.urls import reverse_lazy, reverse
-from django.views.generic.edit import UpdateView, DeleteView, FormView
-from django.shortcuts import render, redirect
-from django.views.generic import CreateView, ListView, DetailView
-from django.views.generic.base import TemplateView
+from django.db import transaction
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from django.utils import timezone
+from django.views.generic import CreateView, ListView
+from django.views.generic.edit import UpdateView, DeleteView
 
 from main.forms import CustomUserCreationForm, PurchaseForm, RefundForm
+from main.mixins import AdminRequiredMixin
 from main.models import Product, Refund, Purchase
 
 
-class Products(ListView):
+class ProductsView(ListView):
     paginate_by = 8
     model = Product
     template_name = 'main/index.html'
+    extra_context = {'purchase_form': PurchaseForm}
 
 
-class AdminProductList(ListView):
+class AdminProductListView(AdminRequiredMixin, ListView):
     paginate_by = 8
     model = Product
     template_name = 'main/admin_panel/product_list.html'
     context_object_name = 'products'
 
 
-class Register(CreateView):
+class RegisterView(CreateView):
     form_class = CustomUserCreationForm
     template_name = 'main/user/register.html'
     success_url = '/'
@@ -45,127 +49,103 @@ class Logout(LoginRequiredMixin, LogoutView):
     login_url = 'login/'
 
 
-class ChangeProduct(UpdateView):
+class ChangeProductView(AdminRequiredMixin, UpdateView):
     model = Product
     fields = ['image', 'title', 'description', 'price', 'stock']
     template_name = 'main/admin_panel/change_product.html'
     success_url = '/product-list/'
 
 
-class AddProduct(CreateView):
+class AddProductView(AdminRequiredMixin, CreateView):
     template_name = 'main/admin_panel/add_product.html'
     model = Product
     fields = ['image', 'title', 'description', 'price', 'stock']
     success_url = '/product-list/'
 
 
-class Refunds(ListView):
+class RefundsView(AdminRequiredMixin, ListView):
     model = Refund
     template_name = 'main/admin_panel/refunds.html'
     paginate_by = 8
 
 
-class RefundAgree(DeleteView):
+class RefundAgreeView(AdminRequiredMixin, DeleteView):
     model = Refund
     success_url = '/refunds/'
 
-    def post(self, request, *args, **kwargs):
-        refund = self.get_object()
-        purchase = refund.refund_purchase
+    def form_valid(self, form):
+        user = self.object.refund_purchase.user
+        user.money += self.object.refund_purchase.product.price * self.object.refund_purchase.product_quantity
+        product = self.object.refund_purchase.product
+        product.stock += self.object.refund_purchase.product_quantity
+        with transaction.atomic():
+            user.save()
+            product.save()
+            self.object.refund_purchase.delete()
+            return super().form_valid(form=form)
 
-        user = purchase.user
-        user.money += purchase.product.price * purchase.product_quantity
-        user.save()
 
-        product = purchase.product
-        product.stock += purchase.product_quantity
-        product.save()
-
-        purchase.delete()
-        refund.delete()
-
-        return redirect(self.success_url)
-
-class RefundReject(DeleteView):
+class RefundRejectView(AdminRequiredMixin, DeleteView):
     model = Refund
     success_url = '/refunds/'
 
-    def post(self, request, *args, **kwargs):
-        refund = self.get_object()
-        refund.delete()
-        return HttpResponseRedirect(self.success_url)
 
-
-class ProductPurchase(DetailView, FormView):
-    model = Product
-    template_name = 'main/user/product_purchase.html'
-    context_object_name = 'product'
+class PurchaseCreateView(LoginRequiredMixin, CreateView):
+    model = Purchase
     form_class = PurchaseForm
     success_url = '/'
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({"request": self.request, "product_pk": self.kwargs.get('pk')})
+        return kwargs
+
+    def form_invalid(self, form):
+        return HttpResponseRedirect(reverse('main:index'))
+
     def form_valid(self, form):
-        product = self.get_object()
-        quantity = form.cleaned_data['quantity']
-
-        if quantity <= product.stock:
-            total_price = product.price * quantity
-            user = self.request.user
-
-            if user.money >= total_price:
-                purchase = Purchase(user=user, product=product, product_quantity=quantity)
-                purchase.save()
-
-                product.stock -= quantity
-                product.save()
-
-                user.money -= total_price
-                user.save()
-
-                messages.success(self.request, 'Successful Purchase!')
-                return HttpResponseRedirect(self.success_url)
-            else:
-                messages.error(self.request, 'Not Enough money')
-        else:
-            messages.error(self.request, 'We dont have that much in stock')
-
+        product = form.product
+        quantity = form.cleaned_data.get('product_quantity')
+        total_price = product.price * quantity
+        purchase = form.save(commit=False)
+        purchase.product = product
+        purchase.user = self.request.user
+        product.stock -= quantity
+        self.request.user.money -= total_price
+        with transaction.atomic():
+            purchase.save()
+            product.save()
+            self.request.user.save()
+        messages.success(self.request, 'Successful Purchase!')
         return super().form_valid(form)
 
 
-class PurchaseList(ListView):
+class PurchaseListView(LoginRequiredMixin, ListView):
     model = Purchase
     template_name = 'main/user/purchase_list.html'
     context_object_name = 'purchases'
 
-
     def get_queryset(self):
-        return Purchase.objects.filter(user=self.request.user)
+        return Purchase.objects.filter(user=self.request.user, refund__isnull=True,
+                                       purchase_created__gt=timezone.now() - timedelta(
+                                           seconds=settings.LIMIT_TIME_TO_REFUND))
 
-
-from django.contrib import messages
-from django.urls import reverse
-from django.http import HttpResponseRedirect
 
 class CreateRefund(CreateView):
     model = Refund
     form_class = RefundForm
     success_url = '/purchase-list/'
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({"request": self.request, "purchase_id": self.kwargs.get('purchase_id')})
+        return kwargs
+
     def form_valid(self, form):
-        purchase_id = self.kwargs['purchase_id']
-        purchase = Purchase.objects.get(pk=purchase_id)
-
-        from datetime import timedelta
-        from django.utils import timezone
-        now = timezone.now()
-        if now - purchase.purchase_created > timedelta(minutes=1):
-            messages.success(self.request, "Timer has been expired, you have 1 minute to create refund request")
-            return HttpResponseRedirect(reverse('main:purchase_list'))
-
         refund = form.save(commit=False)
-        refund.refund_purchase = purchase
+        refund.refund_purchase = form.purchase
         refund.save()
-
         return super().form_valid(form)
 
-
-#completed
+    def form_invalid(self, form):
+        return HttpResponseRedirect(reverse('main:purchase_list'))
