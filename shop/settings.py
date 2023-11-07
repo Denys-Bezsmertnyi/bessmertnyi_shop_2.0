@@ -131,3 +131,5 @@ AUTH_USER_MODEL = "main.User"
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+LIMIT_TIME_TO_REFUND = 600
