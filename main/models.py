@@ -7,8 +7,8 @@ class User(AbstractUser):
 
 
 class Purchase(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user")
-    product = models.ForeignKey("Product", on_delete=models.CASCADE, related_name="product")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="purchases")
+    product = models.ForeignKey("Product", on_delete=models.CASCADE, related_name="purchased")
     product_quantity = models.PositiveIntegerField()
     purchase_created = models.DateTimeField(auto_now_add=True)
 
@@ -34,5 +34,3 @@ class Product(models.Model):
 
     def __str__(self):
         return self.title
-
-#completed
